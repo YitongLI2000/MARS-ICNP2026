@@ -1,0 +1,43 @@
+# NDNd build products
+/ndnd
+/ndnd.exe
+/gondn_tlv_gen
+/gondn_tlv_gen.exe
+/coverage.out
+/db-*/
+/build/
+
+# Go and WebAssembly build products
+*.test
+*.wasm
+wasm_exec.js
+
+# MARS application build products
+/std/examples/**/build/
+/std/examples/**/apps/consumer/consumer
+/std/examples/**/apps/consumer/consumer.exe
+/std/examples/**/apps/producer/producer
+/std/examples/**/apps/producer/producer.exe
+
+# Generated MARS experiment state and output
+/std/examples/mars/configs/
+/std/examples/mars/reference/
+/std/examples/mars/logs/
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Editor and temporary files
+.env
+.idea/
+.vscode/
+_build/
+temp/
+*.log
+*.sw*
+*~
+.DS_Store

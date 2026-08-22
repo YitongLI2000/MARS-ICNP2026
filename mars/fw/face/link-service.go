@@ -1,0 +1,338 @@
+/* YaNFD - Yet another NDN Forwarding Daemon
+ *
+ * Copyright (C) 2020-2021 Eric Newberry.
+ *
+ * This file is licensed under the terms of the MIT License, as found in LICENSE.md.
+ */
+
+package face
+
+import (
+	"encoding/binary"
+	"fmt"
+	"time"
+
+	"github.com/named-data/ndnd/fw/core"
+	defn "github.com/named-data/ndnd/fw/defn"
+	"github.com/named-data/ndnd/fw/dispatch"
+	"github.com/named-data/ndnd/fw/fw"
+	spec_mgmt "github.com/named-data/ndnd/std/ndn/mgmt_2022"
+)
+
+// LinkService is an interface for link service implementations
+type LinkService interface {
+	String() string
+	Transport() transport
+	SetFaceID(faceID uint64)
+
+	FaceID() uint64
+	LocalURI() *defn.URI
+	RemoteURI() *defn.URI
+	Persistency() spec_mgmt.Persistency
+	SetPersistency(persistency spec_mgmt.Persistency)
+	Scope() defn.Scope
+	LinkType() defn.LinkType
+	MTU() int
+	SetMTU(mtu int)
+
+	ExpirationPeriod() time.Duration
+	State() defn.State
+	GetSendQueueSize() uint64
+	GetLinkSendQueueLen() uint64
+	GetLinkBacklogBytes() uint64
+	GetLinkBacklogPackets() uint64
+
+	// Run is the main entry point for running face thread
+	// initial is optional new incoming frame
+	Run(initial []byte)
+
+	// Add a packet to the send queue for this link service
+	SendPacket(out dispatch.OutPkt)
+	// Synchronously handle an incoming frame and dispatch to fw
+	handleIncomingFrame(frame []byte)
+
+	// Close the face
+	Close()
+
+	// Counters
+	NInInterests() uint64
+	NInData() uint64
+	NInBytes() uint64
+	NOutInterests() uint64
+	NOutData() uint64
+	NOutBytes() uint64
+}
+
+// linkServiceBase is the type upon which all link service implementations should be built
+type linkServiceBase struct {
+	faceID    uint64
+	transport transport
+	stopped   chan bool
+	sendQueue chan dispatch.OutPkt
+
+	// Counters
+	nInInterests  uint64
+	nInData       uint64
+	nOutInterests uint64
+	nOutData      uint64
+}
+
+func (l *linkServiceBase) String() string {
+	if l.transport != nil {
+		return fmt.Sprintf("link-service (%s)", l.transport)
+	}
+
+	return fmt.Sprintf("link-service (faceid=%d)", l.faceID)
+}
+
+func (l *linkServiceBase) SetFaceID(faceID uint64) {
+	l.faceID = faceID
+	if l.transport != nil {
+		l.transport.setFaceID(faceID)
+	}
+}
+
+//
+// "Constructors" and threading
+//
+
+func (l *linkServiceBase) makeLinkServiceBase() {
+	l.stopped = make(chan bool)
+	l.sendQueue = make(chan dispatch.OutPkt, CfgFaceQueueSize())
+}
+
+//
+// Getters
+//
+
+// Transport returns the transport for the face.
+func (l *linkServiceBase) Transport() transport {
+	return l.transport
+}
+
+// FaceID returns the ID of the face
+func (l *linkServiceBase) FaceID() uint64 {
+	return l.faceID
+}
+
+// LocalURI returns the local URI of the underlying transport
+func (l *linkServiceBase) LocalURI() *defn.URI {
+	return l.transport.LocalURI()
+}
+
+// RemoteURI returns the remote URI of the underlying transport
+func (l *linkServiceBase) RemoteURI() *defn.URI {
+	return l.transport.RemoteURI()
+}
+
+// Persistency returns the MTU of the underlying transport.
+func (l *linkServiceBase) Persistency() spec_mgmt.Persistency {
+	return l.transport.Persistency()
+}
+
+// SetPersistency sets the MTU of the underlying transport.
+func (l *linkServiceBase) SetPersistency(persistency spec_mgmt.Persistency) {
+	l.transport.SetPersistency(persistency)
+}
+
+// Scope returns the scope of the underlying transport.
+func (l *linkServiceBase) Scope() defn.Scope {
+	return l.transport.Scope()
+}
+
+// LinkType returns the type of the link.
+func (l *linkServiceBase) LinkType() defn.LinkType {
+	return l.transport.LinkType()
+}
+
+// MTU returns the MTU of the underlying transport.
+func (l *linkServiceBase) MTU() int {
+	return l.transport.MTU()
+}
+
+// SetMTU sets the MTU of the underlying transport.
+func (l *linkServiceBase) SetMTU(mtu int) {
+	l.transport.SetMTU(mtu)
+}
+
+// ExpirationPeriod returns the time until the underlying transport expires. If transport not on-demand, returns 0.
+func (l *linkServiceBase) ExpirationPeriod() time.Duration {
+	return l.transport.ExpirationPeriod()
+}
+
+// State returns the state of the underlying transport.
+func (l *linkServiceBase) State() defn.State {
+	if l.transport.IsRunning() {
+		return defn.Up
+	}
+	return defn.Down
+}
+
+// GetSendQueueSize returns the current transport send-queue size metric.
+func (l *linkServiceBase) GetSendQueueSize() uint64 {
+	if l.transport == nil {
+		return 0
+	}
+	return l.transport.GetSendQueueSize()
+}
+
+// GetLinkSendQueueLen returns the number of packets waiting in the link-service send queue.
+func (l *linkServiceBase) GetLinkSendQueueLen() uint64 {
+	return uint64(len(l.sendQueue))
+}
+
+// GetLinkBacklogBytes returns cached egress link/qdisc backlog in bytes.
+func (l *linkServiceBase) GetLinkBacklogBytes() uint64 {
+	if l.transport == nil {
+		return 0
+	}
+	return l.transport.GetLinkBacklogBytes()
+}
+
+// GetLinkBacklogPackets returns cached egress link/qdisc backlog in packets.
+func (l *linkServiceBase) GetLinkBacklogPackets() uint64 {
+	if l.transport == nil {
+		return 0
+	}
+	return l.transport.GetLinkBacklogPackets()
+}
+
+//
+// Counters
+//
+
+// NInInterests returns the number of Interests received on this face.
+func (l *linkServiceBase) NInInterests() uint64 {
+	return l.nInInterests
+}
+
+// NInData returns the number of Data packets received on this face.
+func (l *linkServiceBase) NInData() uint64 {
+	return l.nInData
+}
+
+// NInBytes returns the number of link-layer bytes received on this face.
+func (l *linkServiceBase) NInBytes() uint64 {
+	return l.transport.NInBytes()
+}
+
+// NOutInterests returns the number of Interests sent on this face.
+func (l *linkServiceBase) NOutInterests() uint64 {
+	return l.nOutInterests
+}
+
+// NInData returns the number of Data packets sent on this face.
+func (l *linkServiceBase) NOutData() uint64 {
+	return l.nOutData
+}
+
+// NOutBytes returns the number of link-layer bytes sent on this face.
+func (l *linkServiceBase) NOutBytes() uint64 {
+	return l.transport.NOutBytes()
+}
+
+// Close the underlying transport
+func (l *linkServiceBase) Close() {
+	l.transport.Close()
+}
+
+//
+// Forwarding pipeline
+//
+
+// SendPacket adds a packet to the send queue for this link service
+func (l *linkServiceBase) SendPacket(out dispatch.OutPkt) {
+	select {
+	case l.sendQueue <- out:
+		// Packet queued successfully
+		core.Log.Trace(l, "Queued packet for link service")
+	default:
+		// Drop packet due to congestion
+		core.Log.Debug(l, "Dropped packet due to congestion")
+
+		// TODO: Signal congestion
+	}
+}
+
+func (l *linkServiceBase) dispatchInterest(pkt *defn.Pkt) {
+	if pkt.L3.Interest == nil {
+		panic("dispatchInterest called with packet that is not Interest")
+	}
+
+	// Store name for easy access
+	pkt.Name = pkt.L3.Interest.NameV
+
+	thread := fw.HashNameToFwThread(pkt.Name)
+	core.Log.Trace(l, "Dispatched Interest", "thread", thread)
+	dispatch.GetFWThread(thread).QueueInterest(pkt)
+}
+
+func (l *linkServiceBase) dispatchData(pkt *defn.Pkt) {
+	if pkt.L3.Data == nil {
+		panic("dispatchData called with packet that is not Data")
+	}
+
+	// Store name for easy access
+	pkt.Name = pkt.L3.Data.NameV
+
+	// Decode PitToken. If it's for us, it's a uint16 + uint32.
+	if len(pkt.PitToken) == 6 {
+		thread := binary.BigEndian.Uint16(pkt.PitToken)
+		fwThread := dispatch.GetFWThread(int(thread))
+		if fwThread == nil {
+			core.Log.Error(l, "Invalid PIT token attached to Data packet")
+			return
+		}
+
+		core.Log.Trace(l, "Dispatched Data", "thread", thread)
+		fwThread.QueueData(pkt)
+		return
+	}
+
+	// Only if from a local face (and therefore from a producer), dispatch to
+	// threads matching every prefix. We need to do this because producers do
+	// not attach PIT tokens to their data packets.
+	if l.Scope() == defn.Local {
+		for i, match := range fw.HashNameToAllPrefixFwThreads(pkt.Name) {
+			if match {
+				core.Log.Trace(l, "Prefix dispatched local-origin Data", "thread", i)
+				dispatch.GetFWThread(i).QueueData(pkt)
+			}
+		}
+		return
+	}
+
+	// Only exact-match for now (no CanBePrefix)
+	thread := fw.HashNameToFwThread(pkt.Name)
+	core.Log.Trace(l, "Dispatched Data", "thread", thread)
+	dispatch.GetFWThread(thread).QueueData(pkt)
+}
+
+// dispatchNack routes a NACK to the forwarding thread that owns its PIT entry.
+func (l *linkServiceBase) dispatchNack(pkt *defn.Pkt) {
+	if pkt.L3.Interest == nil || pkt.NackReason == nil {
+		panic("dispatchNack called with packet that is not a NACK")
+	}
+
+	// Store name for easy access
+	pkt.Name = pkt.L3.Interest.NameV
+
+	// Prefer PIT token routing (if present) for direct dispatch to owning thread
+	if len(pkt.PitToken) == 6 {
+		thread := binary.BigEndian.Uint16(pkt.PitToken)
+		fwThread := dispatch.GetFWThread(int(thread))
+		if fwThread == nil {
+			core.Log.Error(l, "Invalid PIT token attached to NACK packet")
+			// Fall through to name-based routing
+		} else {
+			core.Log.Trace(l, "Dispatched NACK via PIT token", "thread", thread, "reason", *pkt.NackReason)
+			fwThread.QueueNack(pkt)
+			return
+		}
+	}
+
+	// Fallback to name-based routing if no PIT token
+	thread := fw.HashNameToFwThread(pkt.Name)
+	core.Log.Trace(l, "Dispatched NACK via name hash", "thread", thread, "reason", *pkt.NackReason)
+	dispatch.GetFWThread(thread).QueueNack(pkt)
+}

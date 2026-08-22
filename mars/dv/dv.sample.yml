@@ -1,0 +1,24 @@
+dv:
+  # [required] Global prefix for all DV routers in the network
+  network: /ndn
+  # [required] Unique name for each router in the network
+  router: /ndn/sample
+
+  # [required] Keychain URI for security
+  # - If "insecure" is specified, security is disabled
+  # - Example: dir:///absolute/path/to/keychain
+  keychain: "insecure"
+  # [required] List of full names of all trust anchors
+  trust_anchors:
+    - "/ndn/KEY/%27%C4%B2%2A%9F%7B%81%27/ndn/v=1651246789556"
+
+  # [optional] List of permanent neighbors
+  # Example with all options:
+  #   - uri: udp4://suns.cs.ucla.edu:6363   # required
+  #     mtu: 1420                           # optional
+  neighbors: []
+
+  # [optional] Period of Advertisement Sync Interests (ms)
+  advertise_interval: 5000
+  # [optional] Time after which a neighbor is considered dead (ms)
+  router_dead_interval: 30000

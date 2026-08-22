@@ -1,0 +1,21 @@
+// Network name from config
+#network: net10
+#network: net20/net21
+#network: net30/net31/net32
+// Router name from config
+#router: #network/router
+
+// Advertisement data and broadcast
+#advertisement_data: /"localhop"/#router/"32=DV"/"32=ADV"/_ <= #router_cert
+
+// Prefix table Sync group
+#prefix_table: #network/"32=DV"/"32=PFS"
+// Prefix table data
+#prefix_table_data: #prefix_table/#router/_/_ <= #router_cert
+
+// Certificate definitions
+#network_cert: #network/#KEY
+#router_cert: #router/"32=DV"/#KEY <= #network_cert
+
+// Standard NDN conventions
+#KEY: "KEY"/_/_/_

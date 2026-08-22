@@ -1,0 +1,13 @@
+debug
+debug.test
+main
+*.log
+/example/mars-many-to-few/*.done
+/example/mars-many-to-few/results/
+/example/mars-many-to-few/results_local/
+/example/fullchain.pem
+/example/privkey.pem
+/example/mars-many-to-few/cert.pem
+/example/mars-many-to-few/key.pem
+/example/mars-many-to-few/receiver
+/example/mars-many-to-few/sender

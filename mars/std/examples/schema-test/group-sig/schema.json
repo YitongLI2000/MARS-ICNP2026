@@ -1,0 +1,52 @@
+{
+  "nodes": {
+    "/<v=time>": {
+      "type": "GeneralObjNode",
+      "attrs": {
+        "MetaFreshness": 10,
+        "MaxRetriesForMeta": 2,
+        "ManifestFreshness": 10,
+        "MaxRetriesForManifest": 2,
+        "MetaLifetime": 6000,
+        "Lifetime": 6000,
+        "Freshness": 3153600000000,
+        "ValidDuration": 3153600000000,
+        "SegmentSize": 80,
+        "MaxRetriesOnFailure": 3,
+        "Pipeline": "SinglePacket"
+      }
+    }
+  },
+  "policies": [
+    {
+      "type": "RegisterPolicy",
+      "path": "/",
+      "attrs": {
+        "RegisterIf": "$isProducer"
+      }
+    },
+    {
+      "type": "Sha256Signer",
+      "path": "/<v=time>/32=data/<seg=segmentNumber>"
+    },
+    {
+      "type": "FixedHmacSigner",
+      "path": "/<v=time>/32=manifest",
+      "attrs": {
+        "KeyValue": "$hmacKey"
+      }
+    },
+    {
+      "type": "FixedHmacSigner",
+      "path": "/<v=time>/32=metadata",
+      "attrs": {
+        "KeyValue": "$hmacKey"
+      }
+    },
+    {
+      "type": "MemStorage",
+      "path": "/",
+      "attrs": {}
+    }
+  ]
+}
